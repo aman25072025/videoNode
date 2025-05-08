@@ -50,36 +50,49 @@ io.on('connection', (socket) => {
 
   // Join Room
   socket.on('BE-join-room', ({ roomId, userName, role }) => {
-        log('info', 'User attempting to join room', { 
-            socketId: socket.id, 
-            userName, 
-            requestedRole: role, 
-            roomId 
-        });
+    log('info', 'User attempting to join room', { 
+      socketId: socket.id, 
+      userName, 
+      requestedRole: role, 
+      roomId 
+    });
+
     socket.join(roomId);
-    socketList[socket.id] = { userName, video: true, audio: true };
+    
+    // Initialize user in socketList with more detailed tracking
+    socketList[socket.id] = { 
+      userName, 
+      video: true, 
+      audio: true,
+      role: null,  // Will be set dynamically
+      joinedAt: Date.now()
+    };
 
-    // Respect requested role if provided
-    let assignedRole = role;
-    if (!role) {
-      // Fallback to auto-assign
-      assignedRole = !roomBroadcasters[roomId] ? 'broadcaster' : 'viewer';
-    }
+    // Determine role assignment
+    let assignedRole = role || (!roomBroadcasters[roomId] ? 'broadcaster' : 'viewer');
 
+    // Broadcaster logic
     if (assignedRole === 'broadcaster') {
-      // Only allow one broadcaster per room
       if (!roomBroadcasters[roomId]) {
         roomBroadcasters[roomId] = socket.id;
-        socket.emit('FE-assign-role', { role: 'broadcaster', broadcasterId: socket.id });
+        socketList[socket.id].role = 'broadcaster';
+        socket.emit('FE-assign-role', { 
+          role: 'broadcaster', 
+          broadcasterId: socket.id 
+        });
         log('info', 'Broadcaster assigned to room', { 
           socketId: socket.id, 
           userName, 
           roomId 
         });
       } else {
-        // Room already has a broadcaster, force viewer role
+        // Fallback to viewer if broadcaster exists
         assignedRole = 'viewer';
-        socket.emit('FE-assign-role', { role: 'viewer', broadcasterId: roomBroadcasters[roomId] });
+        socketList[socket.id].role = 'viewer';
+        socket.emit('FE-assign-role', { 
+          role: 'viewer', 
+          broadcasterId: roomBroadcasters[roomId] 
+        });
         log('info', 'Broadcaster already exists, assigned as viewer', { 
           socketId: socket.id, 
           userName, 
@@ -88,9 +101,15 @@ io.on('connection', (socket) => {
         });
       }
     }
+
+    // Viewer logic
     if (assignedRole === 'viewer') {
-      // Track all viewers in the room
+      socketList[socket.id].role = 'viewer';
+      
+      // Get all clients in the room
       const roomClients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
+      
+      // Count current viewers
       const currentViewers = roomClients.filter(clientId => 
         socketList[clientId] && socketList[clientId].role === 'viewer'
       );
@@ -100,28 +119,31 @@ io.on('connection', (socket) => {
         userName, 
         roomId,
         broadcasterId: roomBroadcasters[roomId],
-        currentViewerCount: currentViewers.length
+        currentViewerCount: currentViewers.length + 1  // Include current viewer
       });
 
       socket.emit('FE-assign-role', { 
         role: 'viewer', 
         broadcasterId: roomBroadcasters[roomId],
-        viewerCount: currentViewers.length
+        viewerCount: currentViewers.length + 1
       });
-
-      // Update the role in socketList
-      socketList[socket.id].role = 'viewer';
     }
 
-    // Set User List
+    // Broadcast user list to room
     try {
       const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
-      const users = [];
-      clients.forEach((client) => {
-        users.push({ userId: client, info: socketList[client] });
-      });
+      const users = clients.map((client) => ({
+        userId: client, 
+        info: socketList[client]
+      }));
+      
+      // Broadcast to all clients in the room except the new user
       socket.broadcast.to(roomId).emit('FE-user-join', users);
     } catch (e) {
+      log('error', 'Error broadcasting user join', {
+        roomId,
+        error: e.message
+      });
       io.sockets.in(roomId).emit('FE-error-user-exist', { err: true });
     }
   });
