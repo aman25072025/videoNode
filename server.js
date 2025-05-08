@@ -3,6 +3,7 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http, { cors: { origin: '*' } });
 const PORT = process.env.PORT || 5000;
+const os = require('os');
 
 // Enhanced logging utility
 const log = (level, message, metadata = {}) => {
