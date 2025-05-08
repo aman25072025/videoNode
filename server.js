@@ -1,7 +1,18 @@
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
-const io = require('socket.io')(http, { cors: { origin: '*' } });
+const io = require('socket.io')(http, {
+  cors: {
+    origin: [
+      'http://localhost:3000', 
+      'https://aman25072025.github.io', 
+      'https://videonode.onrender.com'
+    ],
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+  }
+});
 const PORT = process.env.PORT || 5000;
 const os = require('os');
 
