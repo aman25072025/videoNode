@@ -1,5 +1,18 @@
 const express = require('express');
+const cors = require('cors');
 const app = express();
+
+app.use(cors({
+  origin: [
+    'http://localhost:3000', 
+    'https://aman25072025.github.io', 
+    'https://videonode.onrender.com'
+  ],
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
 const http = require('http').createServer(app);
 const io = require('socket.io')(http, {
   cors: {
@@ -13,18 +26,19 @@ const io = require('socket.io')(http, {
     credentials: true
   }
 });
+
 const PORT = process.env.PORT || 5000;
 const os = require('os');
 
-// Enhanced logging utility
+// Logging utility
 const log = (level, message, metadata = {}) => {
-    const timestamp = new Date().toISOString();
-    console.log(JSON.stringify({
-        timestamp,
-        level,
-        message,
-        ...metadata
-    }));
+  const timestamp = new Date().toISOString();
+  console.log(JSON.stringify({
+    timestamp,
+    level,
+    message,
+    ...metadata
+  }));
 };
 
 let socketList = {};
@@ -39,7 +53,6 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     delete socketList[socket.id];
-    // Remove broadcaster if leaving
     for (const roomId in roomBroadcasters) {
       if (roomBroadcasters[roomId] === socket.id) {
         delete roomBroadcasters[roomId];
@@ -48,7 +61,6 @@ io.on('connection', (socket) => {
     console.log('User disconnected!');
   });
 
-  // Join Room
   socket.on('BE-join-room', ({ roomId, userName, role }) => {
     log('info', 'User attempting to join room', { 
       socketId: socket.id, 
@@ -58,20 +70,17 @@ io.on('connection', (socket) => {
     });
 
     socket.join(roomId);
-    
-    // Initialize user in socketList with more detailed tracking
+
     socketList[socket.id] = { 
       userName, 
       video: true, 
       audio: true,
-      role: null,  // Will be set dynamically
+      role: null,
       joinedAt: Date.now()
     };
 
-    // Determine role assignment
     let assignedRole = role || (!roomBroadcasters[roomId] ? 'broadcaster' : 'viewer');
 
-    // Broadcaster logic
     if (assignedRole === 'broadcaster') {
       if (!roomBroadcasters[roomId]) {
         roomBroadcasters[roomId] = socket.id;
@@ -86,7 +95,6 @@ io.on('connection', (socket) => {
           roomId 
         });
       } else {
-        // Fallback to viewer if broadcaster exists
         assignedRole = 'viewer';
         socketList[socket.id].role = 'viewer';
         socket.emit('FE-assign-role', { 
@@ -102,14 +110,9 @@ io.on('connection', (socket) => {
       }
     }
 
-    // Viewer logic
     if (assignedRole === 'viewer') {
       socketList[socket.id].role = 'viewer';
-      
-      // Get all clients in the room
       const roomClients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
-      
-      // Count current viewers
       const currentViewers = roomClients.filter(clientId => 
         socketList[clientId] && socketList[clientId].role === 'viewer'
       );
@@ -119,7 +122,7 @@ io.on('connection', (socket) => {
         userName, 
         roomId,
         broadcasterId: roomBroadcasters[roomId],
-        currentViewerCount: currentViewers.length + 1  // Include current viewer
+        currentViewerCount: currentViewers.length + 1
       });
 
       socket.emit('FE-assign-role', { 
@@ -129,15 +132,12 @@ io.on('connection', (socket) => {
       });
     }
 
-    // Broadcast user list to room
     try {
       const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
       const users = clients.map((client) => ({
         userId: client, 
         info: socketList[client]
       }));
-      
-      // Broadcast to all clients in the room except the new user
       socket.broadcast.to(roomId).emit('FE-user-join', users);
     } catch (e) {
       log('error', 'Error broadcasting user join', {
@@ -148,7 +148,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Signaling events
   socket.on('BE-call-user', ({ userToCall, from, signal }) => {
     log('info', 'Initiating call', { 
       fromSocketId: from, 
@@ -174,12 +173,13 @@ io.on('connection', (socket) => {
       userName: socketList[socket.id]?.userName, 
       roomId 
     });
-    
+
     delete socketList[socket.id];
     if (roomBroadcasters[roomId] === socket.id) {
       log('warn', 'Broadcaster left room', { roomId });
       delete roomBroadcasters[roomId];
     }
+
     socket.broadcast.to(roomId).emit('FE-user-leave', { userId: socket.id });
     socket.leave(roomId);
   });
