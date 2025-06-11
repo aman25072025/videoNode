@@ -194,11 +194,20 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('FE-lower-hand', { userId });
   });
 
-  // When broadcaster selects speaker
+    // When broadcaster sets a speaker
   socket.on('BE-set-speaker', ({ roomId, userId }) => {
+    // Mute all other viewers
+    io.to(roomId).emit('FE-mute-viewer');
+    
+    // Notify everyone about the new speaker
     io.to(roomId).emit('FE-set-speaker', { userId });
   });
-});
+  
+  // When a new viewer joins and needs to be muted
+  socket.on('BE-mute-viewer', ({ roomId, userId }) => {
+    io.to(userId).emit('FE-mute-viewer');
+  });
+  });
 
 http.listen(PORT, () => {
   console.log('Signaling server listening on port', PORT);
