@@ -183,6 +183,21 @@ io.on('connection', (socket) => {
     socket.broadcast.to(roomId).emit('FE-user-leave', { userId: socket.id });
     socket.leave(roomId);
   });
+
+    // When viewer raises hand
+  socket.on('BE-raise-hand', ({ roomId, userId }) => {
+    socket.to(roomId).emit('FE-raise-hand', { userId });
+  });
+
+  // When viewer lowers hand
+  socket.on('BE-lower-hand', ({ roomId, userId }) => {
+    socket.to(roomId).emit('FE-lower-hand', { userId });
+  });
+
+  // When broadcaster selects speaker
+  socket.on('BE-set-speaker', ({ roomId, userId }) => {
+    io.to(roomId).emit('FE-set-speaker', { userId });
+  });
 });
 
 http.listen(PORT, () => {
