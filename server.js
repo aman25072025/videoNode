@@ -240,6 +240,17 @@ io.on('connection', (socket) => {
     log('info', 'Muting viewer', { roomId, userId });
     io.to(userId).emit('FE-mute-viewer');
   });
+  
+  socket.on('BE-stop-speaking', ({ roomId, userId }) => {
+    // Validate the user is actually the current speaker
+    if (activeSpeaker === userId) {
+      // Mute the user for everyone
+      io.to(roomId).emit('FE-set-speaker', { userId: null });
+      
+      // Lower their hand if raised
+      io.to(roomId).emit('FE-lower-hand', { userId });
+    }
+  });
 });
 
 http.listen(PORT, () => {
