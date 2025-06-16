@@ -43,6 +43,8 @@ const log = (level, message, metadata = {}) => {
 
 let socketList = {};
 let roomBroadcasters = {}; // roomId -> broadcaster socket.id
+let roomActiveSpeakers = {}; // roomId -> active speaker socket.id
+let raisedHands = {}; // roomId -> array of socket.ids
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', message: 'Server is healthy' });
@@ -191,6 +193,36 @@ io.on('connection', (socket) => {
     if (broadcasterId) {
       io.to(broadcasterId).emit('FE-speaking-request', { from: requester });
     }
+  });
+
+  socket.on('BE-unmute-viewer', ({ roomId, viewerId }) => {
+    log('info', 'Unmuting viewer', { roomId, viewerId, broadcasterId: socket.id });
+
+    // Mute the current active speaker if there is one
+    if (roomActiveSpeakers[roomId] && roomActiveSpeakers[roomId] !== viewerId) {
+      const previousSpeaker = roomActiveSpeakers[roomId];
+      io.to(previousSpeaker).emit('FE-viewer-muted', { viewerId: previousSpeaker });
+    }
+
+    // Set new active speaker
+    roomActiveSpeakers[roomId] = viewerId;
+
+    // Remove from raised hands if they were there
+    if (raisedHands[roomId]) {
+      raisedHands[roomId] = raisedHands[roomId].filter(id => id !== viewerId);
+    }
+
+    // Notify the viewer to unmute
+    io.to(viewerId).emit('FE-viewer-unmuted', { viewerId });
+
+    // Notify room about new active speaker
+    io.to(roomId).emit('FE-active-speaker-changed', { viewerId });
+
+    log('info', 'Viewer unmuted and set as active speaker', {
+      roomId,
+      viewerId,
+      activeSpeaker: roomActiveSpeakers[roomId]
+    });
   });
 });
 
