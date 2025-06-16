@@ -183,35 +183,6 @@ io.on('connection', (socket) => {
     socket.broadcast.to(roomId).emit('FE-user-leave', { userId: socket.id });
     socket.leave(roomId);
   });
-
-  // Hand-raising events
-  socket.on('BE-raise-hand', ({ roomId, userId, userName }) => {
-    log('info', 'User raised hand', { roomId, userId, userName });
-    io.to(roomId).emit('FE-hand-raised', { userId, userName });
-  });
-
-  socket.on('BE-lower-hand', ({ roomId, userId }) => {
-    log('info', 'User lowered hand', { roomId, userId });
-    io.to(roomId).emit('FE-hand-lowered', { userId });
-  });
-
-  // Speaker approval events
-  socket.on('BE-approve-speaker', ({ roomId, userId }) => {
-    log('info', 'Speaker approved', { roomId, userId });
-    io.to(userId).emit('FE-speaker-approved', { userId });
-  });
-
-  socket.on('BE-revoke-speaker', ({ roomId, userId }) => {
-    log('info', 'Speaker revoked', { roomId, userId });
-    io.to(userId).emit('FE-speaker-revoked', { userId });
-  });
-
-  // Error handling
-  socket.on('FE-error-user-exist', ({ err }) => {
-    if (err) {
-      socket.emit('FE-error', { message: 'User already exists in this room' });
-    }
-  });
   
 });
 
