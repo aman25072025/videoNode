@@ -4,8 +4,8 @@ const app = express();
 
 app.use(cors({
   origin: [
-    'http://localhost:3000', 
-    'https://aman25072025.github.io', 
+    'http://localhost:3000',
+    'https://aman25072025.github.io',
     'https://videonode.onrender.com'
   ],
   methods: ['GET', 'POST'],
@@ -17,8 +17,8 @@ const http = require('http').createServer(app);
 const io = require('socket.io')(http, {
   cors: {
     origin: [
-      'http://localhost:3000', 
-      'https://aman25072025.github.io', 
+      'http://localhost:3000',
+      'https://aman25072025.github.io',
       'https://videonode.onrender.com'
     ],
     methods: ['GET', 'POST'],
@@ -62,18 +62,18 @@ io.on('connection', (socket) => {
   });
 
   socket.on('BE-join-room', ({ roomId, userName, role }) => {
-    log('info', 'User attempting to join room', { 
-      socketId: socket.id, 
-      userName, 
-      requestedRole: role, 
-      roomId 
+    log('info', 'User attempting to join room', {
+      socketId: socket.id,
+      userName,
+      requestedRole: role,
+      roomId
     });
 
     socket.join(roomId);
 
-    socketList[socket.id] = { 
-      userName, 
-      video: true, 
+    socketList[socket.id] = {
+      userName,
+      video: true,
       audio: true,
       role: null,
       joinedAt: Date.now()
@@ -85,25 +85,25 @@ io.on('connection', (socket) => {
       if (!roomBroadcasters[roomId]) {
         roomBroadcasters[roomId] = socket.id;
         socketList[socket.id].role = 'broadcaster';
-        socket.emit('FE-assign-role', { 
-          role: 'broadcaster', 
-          broadcasterId: socket.id 
+        socket.emit('FE-assign-role', {
+          role: 'broadcaster',
+          broadcasterId: socket.id
         });
-        log('info', 'Broadcaster assigned to room', { 
-          socketId: socket.id, 
-          userName, 
-          roomId 
+        log('info', 'Broadcaster assigned to room', {
+          socketId: socket.id,
+          userName,
+          roomId
         });
       } else {
         assignedRole = 'viewer';
         socketList[socket.id].role = 'viewer';
-        socket.emit('FE-assign-role', { 
-          role: 'viewer', 
-          broadcasterId: roomBroadcasters[roomId] 
+        socket.emit('FE-assign-role', {
+          role: 'viewer',
+          broadcasterId: roomBroadcasters[roomId]
         });
-        log('info', 'Broadcaster already exists, assigned as viewer', { 
-          socketId: socket.id, 
-          userName, 
+        log('info', 'Broadcaster already exists, assigned as viewer', {
+          socketId: socket.id,
+          userName,
           roomId,
           existingBroadcasterId: roomBroadcasters[roomId]
         });
@@ -113,20 +113,20 @@ io.on('connection', (socket) => {
     if (assignedRole === 'viewer') {
       socketList[socket.id].role = 'viewer';
       const roomClients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
-      const currentViewers = roomClients.filter(clientId => 
+      const currentViewers = roomClients.filter(clientId =>
         socketList[clientId] && socketList[clientId].role === 'viewer'
       );
 
-      log('info', 'Viewer joining room', { 
-        socketId: socket.id, 
-        userName, 
+      log('info', 'Viewer joining room', {
+        socketId: socket.id,
+        userName,
         roomId,
         broadcasterId: roomBroadcasters[roomId],
         currentViewerCount: currentViewers.length + 1
       });
 
-      socket.emit('FE-assign-role', { 
-        role: 'viewer', 
+      socket.emit('FE-assign-role', {
+        role: 'viewer',
         broadcasterId: roomBroadcasters[roomId],
         viewerCount: currentViewers.length + 1
       });
@@ -135,7 +135,7 @@ io.on('connection', (socket) => {
     try {
       const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
       const users = clients.map((client) => ({
-        userId: client, 
+        userId: client,
         info: socketList[client]
       }));
       socket.broadcast.to(roomId).emit('FE-user-join', users);
@@ -149,9 +149,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('BE-call-user', ({ userToCall, from, signal }) => {
-    log('info', 'Initiating call', { 
-      fromSocketId: from, 
-      toSocketId: userToCall 
+    log('info', 'Initiating call', {
+      fromSocketId: from,
+      toSocketId: userToCall
     });
     io.to(userToCall).emit('FE-receive-call', {
       signal,
@@ -168,10 +168,10 @@ io.on('connection', (socket) => {
   });
 
   socket.on('BE-leave-room', ({ roomId, leaver }) => {
-    log('info', 'User leaving room', { 
-      socketId: socket.id, 
-      userName: socketList[socket.id]?.userName, 
-      roomId 
+    log('info', 'User leaving room', {
+      socketId: socket.id,
+      userName: socketList[socket.id]?.userName,
+      roomId
     });
 
     delete socketList[socket.id];
@@ -183,7 +183,15 @@ io.on('connection', (socket) => {
     socket.broadcast.to(roomId).emit('FE-user-leave', { userId: socket.id });
     socket.leave(roomId);
   });
-  
+
+  // Relay viewer request to talk to the broadcaster
+  socket.on('BE-request-to-speak', ({ roomId, requester }) => {
+    log('info', 'Viewer requested to talk', { roomId, requester });
+    const broadcasterId = roomBroadcasters[roomId];
+    if (broadcasterId) {
+      io.to(broadcasterId).emit('FE-speaking-request', { from: requester });
+    }
+  });
 });
 
 http.listen(PORT, () => {
