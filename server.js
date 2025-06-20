@@ -183,38 +183,6 @@ io.on('connection', (socket) => {
     socket.broadcast.to(roomId).emit('FE-user-leave', { userId: socket.id });
     socket.leave(roomId);
   });
-
-  socket.on('BE-raise-hand', ({ roomId, userId }) => {
-    io.to(roomId).emit('FE-raise-hand', { userId });
-  });
-  
-  // Handle lower hand feature
-  socket.on('BE-lower-hand', ({ roomId, userId }) => {
-    io.to(roomId).emit('FE-lower-hand', { userId });
-  });
-  
-  // Handle speaker assignment
-  socket.on('BE-set-speaker', ({ roomId, userId }) => {
-    io.to(roomId).emit('FE-set-speaker', { userId });
-  });
-  
-  // Add error handling for media failures
-  socket.on('BE-media-error', ({ error }) => {
-    log('error', 'Client media error', { socketId: socket.id, error });
-  });
-  
-  // Add room cleanup on broadcaster disconnect
-  socket.on('disconnect', () => {
-    // ... existing code ...
-    
-    // Notify room if broadcaster left
-    for (const roomId in roomBroadcasters) {
-      if (roomBroadcasters[roomId] === socket.id) {
-        io.to(roomId).emit('FE-broadcaster-left');
-        delete roomBroadcasters[roomId];
-      }
-    }
-  });
   
 });
 
