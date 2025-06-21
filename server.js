@@ -193,14 +193,18 @@ io.on('connection', (socket) => {
   });
 
   socket.on('BE-stop-speaking', ({ roomId, userId }) => {
-    // Notify the specific viewer to stop speaking
-    io.to(userId).emit('FE-stop-speaking');
-    
-    // Also notify the broadcaster to remove that speaker from UI
+    // Tell the viewer to stop (turn off their mic/cam)
+    io.to(userId).emit('FE-viewer-stop-speaking');
+  
+    // Tell the broadcaster to update their approved speakers list
     const broadcasterId = roomBroadcasters[roomId];
     if (broadcasterId) {
-      io.to(broadcasterId).emit('FE-stop-speaking', { userId });
+      io.to(broadcasterId).emit('FE-viewer-stopped', { userId });
     }
+  });
+
+  socket.on('BE-decline-speaker', ({ roomId, userId }) => {
+    io.to(userId).emit('FE-speaker-declined');
   });
 
 });
