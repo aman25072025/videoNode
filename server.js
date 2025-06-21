@@ -28,202 +28,172 @@ const io = require('socket.io')(http, {
 });
 
 const PORT = process.env.PORT || 5000;
+const os = require('os');
 
-// Room management structure
-const rooms = {};
-
-const createRoom = (roomId) => {
-  rooms[roomId] = {
-    broadcaster: null,
-    viewers: new Map(),      // socketId -> {socketId, userData, isAuthorized}
-    pendingViewers: new Map(), // socketId -> {socketId, userData}
-    raisedHands: new Map(),   // socketId -> {socketId, userData}
-    isLocked: false,
-    createdAt: Date.now()
-  };
+// Logging utility
+const log = (level, message, metadata = {}) => {
+  const timestamp = new Date().toISOString();
+  console.log(JSON.stringify({
+    timestamp,
+    level,
+    message,
+    ...metadata
+  }));
 };
 
-// Helper function to get user info
-const getUserInfo = (socketId) => {
-  return {
-    socketId,
-    userName: `User-${socketId.substring(0, 5)}`,
-    joinedAt: Date.now()
-  };
-};
+let socketList = {};
+let roomBroadcasters = {}; // roomId -> broadcaster socket.id
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', message: 'Server is healthy' });
 });
 
 io.on('connection', (socket) => {
-  console.log(`New connection: ${socket.id}`);
+  console.log(`New User connected: ${socket.id}`);
 
   socket.on('disconnect', () => {
-    // Clean up from all rooms
-    Object.keys(rooms).forEach(roomId => {
-      const room = rooms[roomId];
-      if (room.broadcaster === socket.id) {
-        // Broadcaster left - notify all and clean up
-        io.to(roomId).emit('FE-broadcaster-left');
-        delete rooms[roomId];
-      } else {
-        // Viewer left
-        if (room.viewers.has(socket.id)) {
-          room.viewers.delete(socket.id);
-          io.to(roomId).emit('FE-viewer-left', { userId: socket.id });
-        }
-        room.pendingViewers.delete(socket.id);
-        room.raisedHands.delete(socket.id);
+    delete socketList[socket.id];
+    for (const roomId in roomBroadcasters) {
+      if (roomBroadcasters[roomId] === socket.id) {
+        delete roomBroadcasters[roomId];
       }
-    });
-    console.log(`User disconnected: ${socket.id}`);
+    }
+    console.log('User disconnected!');
   });
 
   socket.on('BE-join-room', ({ roomId, userName, role }) => {
-    if (!rooms[roomId]) {
-      createRoom(roomId);
-    }
-    const room = rooms[roomId];
+    log('info', 'User attempting to join room', { 
+      socketId: socket.id, 
+      userName, 
+      requestedRole: role, 
+      roomId 
+    });
 
     socket.join(roomId);
-    const userData = { socketId: socket.id, userName, joinedAt: Date.now() };
 
-    // Handle broadcaster join
-    if (role === 'broadcaster' || (!room.broadcaster && role !== 'viewer')) {
-      if (!room.broadcaster) {
-        room.broadcaster = socket.id;
-        room.isLocked = false; // Reset lock state when new broadcaster joins
-        
+    socketList[socket.id] = { 
+      userName, 
+      video: true, 
+      audio: true,
+      role: null,
+      joinedAt: Date.now()
+    };
+
+    let assignedRole = role || (!roomBroadcasters[roomId] ? 'broadcaster' : 'viewer');
+
+    if (assignedRole === 'broadcaster') {
+      if (!roomBroadcasters[roomId]) {
+        roomBroadcasters[roomId] = socket.id;
+        socketList[socket.id].role = 'broadcaster';
         socket.emit('FE-assign-role', { 
-          role: 'broadcaster',
-          roomState: {
-            isLocked: room.isLocked,
-            viewers: Array.from(room.viewers.values()),
-            pendingViewers: Array.from(room.pendingViewers.values()),
-            raisedHands: Array.from(room.raisedHands.values())
-          }
+          role: 'broadcaster', 
+          broadcasterId: socket.id 
         });
-        console.log(`Broadcaster ${socket.id} joined room ${roomId}`);
-        return;
+        log('info', 'Broadcaster assigned to room', { 
+          socketId: socket.id, 
+          userName, 
+          roomId 
+        });
       } else {
-        // If broadcaster exists, force viewer role
-        role = 'viewer';
-      }
-    }
-
-    // Handle viewer join
-    if (role === 'viewer') {
-      if (room.isLocked) {
-        // Room is locked - add to pending
-        room.pendingViewers.set(socket.id, userData);
-        socket.emit('FE-pending-approval', { 
-          broadcasterId: room.broadcaster,
-          userName: rooms[roomId].broadcaster.userName
-        });
-        
-        // Notify broadcaster
-        io.to(room.broadcaster).emit('FE-new-pending-viewer', {
-          user: userData
-        });
-        console.log(`Viewer ${socket.id} pending approval in room ${roomId}`);
-      } else {
-        // Auto-approve if room not locked
-        room.viewers.set(socket.id, { ...userData, isAuthorized: true });
+        assignedRole = 'viewer';
+        socketList[socket.id].role = 'viewer';
         socket.emit('FE-assign-role', { 
-          role: 'viewer',
-          isAuthorized: true,
-          broadcasterId: room.broadcaster
+          role: 'viewer', 
+          broadcasterId: roomBroadcasters[roomId] 
         });
-        console.log(`Viewer ${socket.id} auto-approved in room ${roomId}`);
+        log('info', 'Broadcaster already exists, assigned as viewer', { 
+          socketId: socket.id, 
+          userName, 
+          roomId,
+          existingBroadcasterId: roomBroadcasters[roomId]
+        });
       }
     }
-  });
 
-  // Broadcaster controls
-  socket.on('BE-toggle-room-lock', ({ roomId, lockState }) => {
-    if (rooms[roomId]?.broadcaster === socket.id) {
-      rooms[roomId].isLocked = lockState;
-      io.to(roomId).emit('FE-room-lock-updated', { isLocked: lockState });
-      console.log(`Room ${roomId} lock state: ${lockState}`);
-    }
-  });
+    if (assignedRole === 'viewer') {
+      socketList[socket.id].role = 'viewer';
+      const roomClients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
+      const currentViewers = roomClients.filter(clientId => 
+        socketList[clientId] && socketList[clientId].role === 'viewer'
+      );
 
-  socket.on('BE-approve-viewer', ({ roomId, userId, approve }) => {
-    const room = rooms[roomId];
-    if (room?.broadcaster === socket.id && room.pendingViewers.has(userId)) {
-      const userData = room.pendingViewers.get(userId);
-      room.pendingViewers.delete(userId);
-
-      if (approve) {
-        room.viewers.set(userId, { ...userData, isAuthorized: true });
-        io.to(userId).emit('FE-viewer-approved');
-        console.log(`Viewer ${userId} approved in room ${roomId}`);
-      } else {
-        io.to(userId).emit('FE-viewer-rejected');
-        console.log(`Viewer ${userId} rejected in room ${roomId}`);
-      }
-    }
-  });
-
-  // Hand raising
-  socket.on('BE-raise-hand', ({ roomId }) => {
-    const room = rooms[roomId];
-    if (room && room.viewers.has(socket.id)) {
-      const userData = room.viewers.get(socket.id);
-      room.raisedHands.set(socket.id, userData);
-      io.to(room.broadcaster).emit('FE-hand-raised', {
-        user: userData
+      log('info', 'Viewer joining room', { 
+        socketId: socket.id, 
+        userName, 
+        roomId,
+        broadcasterId: roomBroadcasters[roomId],
+        currentViewerCount: currentViewers.length + 1
       });
-      console.log(`Viewer ${socket.id} raised hand in room ${roomId}`);
-    }
-  });
 
-  socket.on('BE-lower-hand', ({ roomId }) => {
-    const room = rooms[roomId];
-    if (room && room.raisedHands.has(socket.id)) {
-      room.raisedHands.delete(socket.id);
-      io.to(room.broadcaster).emit('FE-hand-lowered', {
-        userId: socket.id
+      socket.emit('FE-assign-role', { 
+        role: 'viewer', 
+        broadcasterId: roomBroadcasters[roomId],
+        viewerCount: currentViewers.length + 1
       });
     }
+
+    try {
+      const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
+      const users = clients.map((client) => ({
+        userId: client, 
+        info: socketList[client]
+      }));
+      socket.broadcast.to(roomId).emit('FE-user-join', users);
+    } catch (e) {
+      log('error', 'Error broadcasting user join', {
+        roomId,
+        error: e.message
+      });
+      io.sockets.in(roomId).emit('FE-error-user-exist', { err: true });
+    }
   });
 
-  // WebRTC signaling (keep your existing implementation)
   socket.on('BE-call-user', ({ userToCall, from, signal }) => {
+    log('info', 'Initiating call', { 
+      fromSocketId: from, 
+      toSocketId: userToCall 
+    });
     io.to(userToCall).emit('FE-receive-call', {
       signal,
       from,
-      info: getUserInfo(socket.id)
+      info: socketList[socket.id],
     });
   });
 
   socket.on('BE-accept-call', ({ signal, to }) => {
     io.to(to).emit('FE-call-accepted', {
       signal,
-      answerId: socket.id
+      answerId: socket.id,
     });
   });
 
-  socket.on('BE-leave-room', ({ roomId }) => {
-    const room = rooms[roomId];
-    if (room) {
-      if (room.broadcaster === socket.id) {
-        io.to(roomId).emit('FE-broadcaster-left');
-        delete rooms[roomId];
-      } else {
-        if (room.viewers.has(socket.id)) {
-          room.viewers.delete(socket.id);
-          io.to(roomId).emit('FE-viewer-left', { userId: socket.id });
-        }
-        room.pendingViewers.delete(socket.id);
-        room.raisedHands.delete(socket.id);
-      }
+  socket.on('BE-leave-room', ({ roomId, leaver }) => {
+    log('info', 'User leaving room', { 
+      socketId: socket.id, 
+      userName: socketList[socket.id]?.userName, 
+      roomId 
+    });
+
+    delete socketList[socket.id];
+    if (roomBroadcasters[roomId] === socket.id) {
+      log('warn', 'Broadcaster left room', { roomId });
+      delete roomBroadcasters[roomId];
     }
+
+    socket.broadcast.to(roomId).emit('FE-user-leave', { userId: socket.id });
     socket.leave(roomId);
   });
+
+  socket.on('BE-raise-hand', ({ roomId, userId, userName }) => {
+    socket.to(roomId).emit('FE-raised-hand', { userId, userName });
+  });
+  
+  socket.on('BE-approve-speaker', ({ roomId, userId }) => {
+    io.to(userId).emit('FE-speaker-approved');
+  });
+  
 });
 
 http.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log('Signaling server listening on port', PORT);
 });
