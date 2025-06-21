@@ -191,7 +191,11 @@ io.on('connection', (socket) => {
   socket.on('BE-approve-speaker', ({ roomId, userId }) => {
     io.to(userId).emit('FE-speaker-approved');
   });
-  
+
+  socket.on('BE-stop-speaking', ({ roomId, userId }) => {
+    io.to(userId).emit('FE-stop-speaking');
+  });
+
 });
 
 http.listen(PORT, () => {
