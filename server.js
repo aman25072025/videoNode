@@ -207,6 +207,10 @@ io.on('connection', (socket) => {
     io.to(userId).emit('FE-speaker-declined');
   });
 
+  socket.on('BE-decline-speaker', ({ roomId, userId }) => {
+    io.to(userId).emit('FE-decline-speaker');
+  });
+
 });
 
 http.listen(PORT, () => {
