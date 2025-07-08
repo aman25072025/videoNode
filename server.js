@@ -233,10 +233,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('BE-decline-speaker', ({ roomId, userId }) => {
-    io.to(userId).emit('FE-speaker-declined');
-  });
-
-  socket.on('BE-decline-speaker', ({ roomId, userId }) => {
     io.to(userId).emit('FE-decline-speaker');
   });
 
@@ -267,4 +263,4 @@ http.listen(PORT, () => {
  FE-raised-hand: Server notifies about hand raised
  FE-speaker-approved: Server approves speaker
  FE-viewer-stop-speaking: Server tells viewer to stop
- FE-speaker-declined: Server notifies about speaker decline */
+ FE-decline-speaker: Server notifies about speaker decline */
